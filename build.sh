@@ -9,6 +9,11 @@ do
 	if [ "${OPT}" == "--cache" ]; then WILL_USE_CACHE="True"; fi
 	if [ "${OPT}" == "--tag" ]; then WILL_BUILD_TAG="True"; fi
 	if [ "${OPT}" == "--head" ]; then WILL_BUILD_HEAD="True"; fi
+	if [[ "${OPT}" =~ ^--tag= ]]; then
+		WILL_BUILD_TAG="True"
+		WILL_SPECIFY_TAG="True"
+		TAG=${OPT#--tag=}
+	fi
 done
 
 if [ -z "${WILL_BUILD_HEAD}" ] && [ -z "${WILL_BUILD_TAG}" ]; then  # if not defined
@@ -21,9 +26,15 @@ if [ "${WILL_BUILD_HEAD}" == "True" ]; then
 	HASH=`curl -SsL https://api.github.com/repos/Moddable-OpenSource/moddable/git/refs/heads/public | jq -r .object.sha | sed -E 's/(.{7}).*/\1/g'`
 	DOCKERFILE="Dockerfile.head"
 elif [ "${WILL_BUILD_TAG}" == "True" ]; then
-	LATEST_TAG=`curl -SsL https://api.github.com/repos/Moddable-OpenSource/moddable/tags | jq -r '.[0] | .name + " " + .commit.sha'`
-	HASH=`echo ${LATEST_TAG} | sed -E 's/.* (.{7}).*/\1/g'`
-	LATEST_TAG=`echo ${LATEST_TAG} | sed -E 's/(.*) .*/\1/g'`
+	if [ $WILL_SPECIFY_TAG == "True" ]; then
+		LATEST_TAG=$TAG
+		LATEST_TAG_DATA=`curl -SsL https://api.github.com/repos/Moddable-OpenSource/moddable/tags | jq -r '.[] | .name + " " + .commit.sha' | grep ${LATEST_TAG}`
+		HASH=`echo ${LATEST_TAG_DATA} | sed -E 's/.* (.{7}).*/\1/g'`
+	else
+		LATEST_TAG_DATA=`curl -SsL https://api.github.com/repos/Moddable-OpenSource/moddable/tags | jq -r '.[0] | .name + " " + .commit.sha'`
+		HASH=`echo ${LATEST_TAG_DATA} | sed -E 's/.* (.{7}).*/\1/g'`
+		LATEST_TAG=`echo ${LATEST_TAG_DATA} | sed -E 's/(.*) .*/\1/g'`
+	fi
 	DOCKERFILE="Dockerfile.tag"
 	BUILD_OPTION=" --build-arg GIT_TAG=${LATEST_TAG}"
 fi
@@ -35,6 +46,10 @@ if [ "${WILL_USE_CACHE}" == "True" ]; then
 else
 	BUILD_OPTION+=" --no-cache"
 fi
+
+echo "dockerfile: "${DOCKERFILE}
+echo "docker tag: tiryoh/moddable-esp32:moddable-"${HASH}
+echo "build options: "${BUILD_OPTION}
 docker build -t tiryoh/moddable-esp32:moddable-${HASH} -f ${DOCKERFILE} ${BUILD_OPTION} .
 docker tag tiryoh/moddable-esp32:moddable-${HASH} ghcr.io/tiryoh/moddable-esp32:moddable-${HASH}
 if [ ! -z "${LATEST_TAG}" ] ; then  # if published with git tag
